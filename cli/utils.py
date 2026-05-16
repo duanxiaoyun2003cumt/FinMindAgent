@@ -1,10 +1,10 @@
-import questionary
+﻿import questionary
 from typing import List, Optional, Tuple, Dict
 
 from rich.console import Console
 
 from cli.models import AnalystType
-from tradingagents.llm_clients.model_catalog import get_model_options
+from finmindagent.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
@@ -333,16 +333,6 @@ def ask_output_language() -> str:
         choices=[
             questionary.Choice("English (default)", "English"),
             questionary.Choice("Chinese (中文)", "Chinese"),
-            questionary.Choice("Japanese (日本語)", "Japanese"),
-            questionary.Choice("Korean (한국어)", "Korean"),
-            questionary.Choice("Hindi (हिन्दी)", "Hindi"),
-            questionary.Choice("Spanish (Español)", "Spanish"),
-            questionary.Choice("Portuguese (Português)", "Portuguese"),
-            questionary.Choice("French (Français)", "French"),
-            questionary.Choice("German (Deutsch)", "German"),
-            questionary.Choice("Arabic (العربية)", "Arabic"),
-            questionary.Choice("Russian (Русский)", "Russian"),
-            questionary.Choice("Custom language", "custom"),
         ],
         style=questionary.Style([
             ("selected", "fg:yellow noinherit"),

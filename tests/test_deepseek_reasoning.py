@@ -1,4 +1,4 @@
-"""Tests for DeepSeekChatOpenAI thinking-mode behaviour.
+﻿"""Tests for DeepSeekChatOpenAI thinking-mode behaviour.
 
 Two pieces verified:
 
@@ -16,7 +16,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompt_values import ChatPromptValue
 
-from tradingagents.llm_clients.openai_client import (
+from finmindagent.llm_clients.openai_client import (
     DeepSeekChatOpenAI,
     NormalizedChatOpenAI,
     _input_to_messages,
@@ -123,7 +123,7 @@ class TestDeepSeekReasoningContent:
 class TestDeepSeekReasonerStructuredOutput:
     def test_with_structured_output_raises_for_reasoner(self):
         client = DeepSeekChatOpenAI(
-            model="deepseek-reasoner",
+            model="deepseek-v4-pro",
             api_key="placeholder",
             base_url="https://api.deepseek.com",
         )

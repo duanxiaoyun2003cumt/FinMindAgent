@@ -1,11 +1,11 @@
-"""Tests for the ticker path-component validator that blocks directory traversal."""
+﻿"""Tests for the ticker path-component validator that blocks directory traversal."""
 
 import os
 import unittest
 
 import pytest
 
-from tradingagents.dataflows.utils import safe_ticker_component
+from finmindagent.dataflows.utils import safe_ticker_component
 
 
 @pytest.mark.unit

@@ -1,11 +1,11 @@
-import unittest
+﻿import unittest
 import warnings
 
 import pytest
 
-from tradingagents.llm_clients.base_client import BaseLLMClient
-from tradingagents.llm_clients.model_catalog import get_known_models
-from tradingagents.llm_clients.validators import validate_model
+from finmindagent.llm_clients.base_client import BaseLLMClient
+from finmindagent.llm_clients.model_catalog import get_known_models
+from finmindagent.llm_clients.validators import validate_model
 
 
 class DummyLLMClient(BaseLLMClient):

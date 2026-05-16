@@ -24,18 +24,20 @@ from rich import box
 from rich.align import Align
 from rich.rule import Rule
 
-from tradingagents.graph.trading_graph import TradingAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
+from finmindagent.graph.trading_graph import FinMindAgentGraph
+from finmindagent.default_config import DEFAULT_CONFIG
 from cli.models import AnalystType
 from cli.utils import *
-from cli.announcements import fetch_announcements, display_announcements
+from cli.runtime_reporter import CliRuntimeReporter
 from cli.stats_handler import StatsCallbackHandler
 
 console = Console()
+APP_BRAND = "FinMindAgent"
+APP_DESCRIPTION = "Financial Analysis Agent Harness"
 
 app = typer.Typer(
-    name="TradingAgents",
-    help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
+    name=APP_BRAND,
+    help=f"{APP_BRAND} CLI: {APP_DESCRIPTION}",
     add_completion=True,  # Enable shell completion
 )
 
@@ -74,6 +76,7 @@ class MessageBuffer:
     def __init__(self, max_length=100):
         self.messages = deque(maxlen=max_length)
         self.tool_calls = deque(maxlen=max_length)
+        self.progress_events = deque(maxlen=max_length)
         self.current_report = None
         self.final_report = None  # Store the complete final report
         self.agent_status = {}
@@ -115,6 +118,7 @@ class MessageBuffer:
         self.current_agent = None
         self.messages.clear()
         self.tool_calls.clear()
+        self.progress_events.clear()
         self._processed_message_ids.clear()
 
     def get_completed_reports_count(self):
@@ -145,6 +149,10 @@ class MessageBuffer:
     def add_tool_call(self, tool_name, args):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.tool_calls.append((timestamp, tool_name, args))
+
+    def add_progress(self, content):
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        self.progress_events.append((timestamp, content))
 
     def update_agent_status(self, agent, status):
         if agent in self.agent_status:
@@ -257,9 +265,9 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # Header with welcome message
     layout["header"].update(
         Panel(
-            "[bold green]Welcome to TradingAgents CLI[/bold green]\n"
-            "[dim]© [Tauric Research](https://github.com/TauricResearch)[/dim]",
-            title="Welcome to TradingAgents",
+            f"[bold green]Welcome to {APP_BRAND} CLI[/bold green]\n"
+            "[dim]https://github.com/duanxiaoyun2003cumt[/dim]",
+            title=f"Welcome to {APP_BRAND}",
             border_style="green",
             padding=(1, 2),
             expand=True,
@@ -279,6 +287,21 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     progress_table.add_column("Team", style="cyan", justify="center", width=20)
     progress_table.add_column("Agent", style="green", justify="center", width=20)
     progress_table.add_column("Status", style="yellow", justify="center", width=20)
+
+    # Put live runtime progress at the top so it is not clipped below the
+    # agent status table on shorter terminals.
+    recent_progress_top = list(message_buffer.progress_events)[-8:]
+    if recent_progress_top:
+        progress_table.add_row("[bold]Time[/bold]", "[bold]Runtime Progress[/bold]", "", style="cyan")
+        for timestamp, content in reversed(recent_progress_top):
+            text = str(content)
+            if len(text) > 90:
+                text = text[:87] + "..."
+            progress_table.add_row(timestamp, Text(text, overflow="fold"), "")
+        progress_table.add_row("", "", "", style="dim")
+    else:
+        progress_table.add_row("--", "Waiting for runtime events...", "")
+        progress_table.add_row("", "", "", style="dim")
 
     # Group agents by team - filter to only include agents in agent_status
     all_teams = {
@@ -337,7 +360,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
             progress_table.add_row("", agent, status_cell)
 
         # Add horizontal line after each team
-        progress_table.add_row("─" * 20, "─" * 20, "─" * 20, style="dim")
+        progress_table.add_row("-" * 20, "-" * 20, "-" * 20, style="dim")
 
     layout["progress"].update(
         Panel(progress_table, title="Progress", border_style="cyan", padding=(1, 2))
@@ -468,11 +491,11 @@ def get_user_selections():
 
     # Create welcome box content
     welcome_content = f"{welcome_ascii}\n"
-    welcome_content += "[bold green]TradingAgents: Multi-Agents LLM Financial Trading Framework - CLI[/bold green]\n\n"
+    welcome_content += f"[bold green]{APP_BRAND}: {APP_DESCRIPTION} - CLI[/bold green]\n\n"
     welcome_content += "[bold]Workflow Steps:[/bold]\n"
-    welcome_content += "I. Analyst Team → II. Research Team → III. Trader → IV. Risk Management → V. Portfolio Management\n\n"
+    welcome_content += "I. Analyst Team -> II. Research Team -> III. Trader -> IV. Risk Management -> V. Portfolio Management\n\n"
     welcome_content += (
-        "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
+        "[dim]Built by https://github.com/duanxiaoyun2003cumt[/dim]"
     )
 
     # Create and center the welcome box
@@ -480,16 +503,14 @@ def get_user_selections():
         welcome_content,
         border_style="green",
         padding=(1, 2),
-        title="Welcome to TradingAgents",
-        subtitle="Multi-Agents LLM Financial Trading Framework",
+        title=f"Welcome to {APP_BRAND}",
+        subtitle=APP_DESCRIPTION,
     )
     console.print(Align.center(welcome_box))
     console.print()
     console.print()  # Add vertical space before announcements
 
-    # Fetch and display announcements (silent on failure)
-    announcements = fetch_announcements()
-    display_announcements(console, announcements)
+
 
     # Create a boxed questionnaire for each step
     def create_question_box(title, prompt, default=None):
@@ -943,7 +964,7 @@ def run_analysis(checkpoint: bool = False):
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
-    config["checkpoint_enabled"] = checkpoint
+
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -953,7 +974,7 @@ def run_analysis(checkpoint: bool = False):
     selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
 
     # Initialize the graph with callbacks bound to LLMs
-    graph = TradingAgentsGraph(
+    graph = FinMindAgentGraph(
         selected_analyst_keys,
         config=config,
         debug=True,
@@ -996,6 +1017,16 @@ def run_analysis(checkpoint: bool = False):
                 f.write(f"{timestamp} [Tool Call] {tool_name}({args_str})\n")
         return wrapper
 
+    def save_progress_decorator(obj, func_name):
+        func = getattr(obj, func_name)
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            func(*args, **kwargs)
+            timestamp, content = obj.progress_events[-1]
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"{timestamp} [Progress] {str(content).replace(chr(10), ' ')}\n")
+        return wrapper
+
     def save_report_section_decorator(obj, func_name):
         func = getattr(obj, func_name)
         @wraps(func)
@@ -1012,6 +1043,7 @@ def run_analysis(checkpoint: bool = False):
 
     message_buffer.add_message = save_message_decorator(message_buffer, "add_message")
     message_buffer.add_tool_call = save_tool_call_decorator(message_buffer, "add_tool_call")
+    message_buffer.add_progress = save_progress_decorator(message_buffer, "add_progress")
     message_buffer.update_report_section = save_report_section_decorator(message_buffer, "update_report_section")
 
     # Now start the display layout
@@ -1043,118 +1075,28 @@ def run_analysis(checkpoint: bool = False):
         )
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
 
-        # Initialize state and get graph args with callbacks
-        init_agent_state = graph.propagator.create_initial_state(
+        # Run through the compatibility graph facade, which now owns the
+        # runtime loop, memory, permission audit, artifacts, and logging path.
+        reporter = CliRuntimeReporter(
+            message_buffer=message_buffer,
+            layout=layout,
+            update_display=update_display,
+            stats_handler=stats_handler,
+            start_time=start_time,
+            refresh=live.refresh,
+        )
+        graph.runtime_loop.config["runtime_event_observer"] = reporter.on_event
+        message_buffer.add_progress("Initialize FinMindAgentGraph")
+        message_buffer.add_progress("Load config")
+        message_buffer.add_progress("Load / parse memory")
+        message_buffer.add_message("System", "Starting runtime loop")
+        update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
+        final_state, decision = graph.propagate(
             selections["ticker"], selections["analysis_date"]
         )
-        # Pass callbacks to graph config for tool execution tracking
-        # (LLM tracking is handled separately via LLM constructor)
-        args = graph.propagator.get_graph_args(callbacks=[stats_handler])
-
-        # Stream the analysis
-        trace = []
-        for chunk in graph.graph.stream(init_agent_state, **args):
-            # Process all messages in chunk, deduplicating by message ID
-            for message in chunk.get("messages", []):
-                msg_id = getattr(message, "id", None)
-                if msg_id is not None:
-                    if msg_id in message_buffer._processed_message_ids:
-                        continue
-                    message_buffer._processed_message_ids.add(msg_id)
-
-                msg_type, content = classify_message_type(message)
-                if content and content.strip():
-                    message_buffer.add_message(msg_type, content)
-
-                if hasattr(message, "tool_calls") and message.tool_calls:
-                    for tool_call in message.tool_calls:
-                        if isinstance(tool_call, dict):
-                            message_buffer.add_tool_call(tool_call["name"], tool_call["args"])
-                        else:
-                            message_buffer.add_tool_call(tool_call.name, tool_call.args)
-
-            # Update analyst statuses based on report state (runs on every chunk)
-            update_analyst_statuses(message_buffer, chunk)
-
-            # Research Team - Handle Investment Debate State
-            if chunk.get("investment_debate_state"):
-                debate_state = chunk["investment_debate_state"]
-                bull_hist = debate_state.get("bull_history", "").strip()
-                bear_hist = debate_state.get("bear_history", "").strip()
-                judge = debate_state.get("judge_decision", "").strip()
-
-                # Only update status when there's actual content
-                if bull_hist or bear_hist:
-                    update_research_team_status("in_progress")
-                if bull_hist:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Bull Researcher Analysis\n{bull_hist}"
-                    )
-                if bear_hist:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Bear Researcher Analysis\n{bear_hist}"
-                    )
-                if judge:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Research Manager Decision\n{judge}"
-                    )
-                    update_research_team_status("completed")
-                    message_buffer.update_agent_status("Trader", "in_progress")
-
-            # Trading Team
-            if chunk.get("trader_investment_plan"):
-                message_buffer.update_report_section(
-                    "trader_investment_plan", chunk["trader_investment_plan"]
-                )
-                if message_buffer.agent_status.get("Trader") != "completed":
-                    message_buffer.update_agent_status("Trader", "completed")
-                    message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-
-            # Risk Management Team - Handle Risk Debate State
-            if chunk.get("risk_debate_state"):
-                risk_state = chunk["risk_debate_state"]
-                agg_hist = risk_state.get("aggressive_history", "").strip()
-                con_hist = risk_state.get("conservative_history", "").strip()
-                neu_hist = risk_state.get("neutral_history", "").strip()
-                judge = risk_state.get("judge_decision", "").strip()
-
-                if agg_hist:
-                    if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
-                        message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Aggressive Analyst Analysis\n{agg_hist}"
-                    )
-                if con_hist:
-                    if message_buffer.agent_status.get("Conservative Analyst") != "completed":
-                        message_buffer.update_agent_status("Conservative Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Conservative Analyst Analysis\n{con_hist}"
-                    )
-                if neu_hist:
-                    if message_buffer.agent_status.get("Neutral Analyst") != "completed":
-                        message_buffer.update_agent_status("Neutral Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
-                    )
-                if judge:
-                    if message_buffer.agent_status.get("Portfolio Manager") != "completed":
-                        message_buffer.update_agent_status("Portfolio Manager", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
-                        )
-                        message_buffer.update_agent_status("Aggressive Analyst", "completed")
-                        message_buffer.update_agent_status("Conservative Analyst", "completed")
-                        message_buffer.update_agent_status("Neutral Analyst", "completed")
-                        message_buffer.update_agent_status("Portfolio Manager", "completed")
-
-            # Update the display
-            update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
-            trace.append(chunk)
-
-        # Get final state and decision
-        final_state = trace[-1]
-        decision = graph.process_signal(final_state["final_trade_decision"])
+        message_buffer.add_progress("Write full state log")
+        if final_state.get("final_trade_decision"):
+            message_buffer.add_progress("Write / update trading_memory.md")
 
         # Update all agent statuses to completed
         for agent in message_buffer.agent_status:
@@ -1163,6 +1105,7 @@ def run_analysis(checkpoint: bool = False):
         message_buffer.add_message(
             "System", f"Completed analysis for {selections['analysis_date']}"
         )
+        message_buffer.add_progress("Runtime finished")
 
         # Update final report sections
         for section in message_buffer.report_sections.keys():
@@ -1186,7 +1129,7 @@ def run_analysis(checkpoint: bool = False):
         save_path = Path(save_path_str)
         try:
             report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
-            console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
+            console.print(f"\n[green]Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
             console.print(f"[red]Error saving report: {e}[/red]")
@@ -1199,21 +1142,8 @@ def run_analysis(checkpoint: bool = False):
 
 @app.command()
 def analyze(
-    checkpoint: bool = typer.Option(
-        False,
-        "--checkpoint",
-        help="Enable checkpoint/resume: save state after each node so a crashed run can resume.",
-    ),
-    clear_checkpoints: bool = typer.Option(
-        False,
-        "--clear-checkpoints",
-        help="Delete all saved checkpoints before running (force fresh start).",
-    ),
+    checkpoint: bool = typer.Option(False, "--checkpoint", help="Deprecated; runtime uses event logs instead."),
 ):
-    if clear_checkpoints:
-        from tradingagents.graph.checkpointer import clear_all_checkpoints
-        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
-        console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     run_analysis(checkpoint=checkpoint)
 
 

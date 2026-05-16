@@ -1,4 +1,4 @@
-"""Shared pytest fixtures that prevent CI hangs when API keys are absent."""
+﻿"""Shared pytest fixtures that prevent CI hangs when API keys are absent."""
 
 import os
 from unittest.mock import MagicMock, patch
@@ -36,7 +36,7 @@ def mock_llm_client():
     client = MagicMock()
     client.get_llm.return_value = MagicMock()
     with patch(
-        "tradingagents.llm_clients.factory.create_llm_client",
+        "finmindagent.llm_clients.factory.create_llm_client",
         return_value=client,
     ):
         yield client
