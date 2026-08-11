@@ -1,4 +1,4 @@
-﻿from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
 from finmindagent.agents.utils.core_stock_tools import (
@@ -21,17 +21,22 @@ from finmindagent.agents.utils.news_data_tools import (
 
 
 def get_language_instruction() -> str:
-    """Return a prompt instruction for the configured output language.
+    """Return the shared language contract for the configured output language.
 
-    Returns empty string when English (default), so no extra tokens are used.
-    Only applied to user-facing agents (analysts, portfolio manager).
-    Internal debate agents stay in English for reasoning quality.
+    Single source of truth: ``finmindagent.language`` — the same contract
+    the runtime engine injects into every content-agent prompt. Covers the
+    legacy agent-graph path (analysts + portfolio manager); the runtime
+    engine path uses ``language_instruction()`` directly.
     """
     from finmindagent.dataflows.config import get_config
-    lang = get_config().get("output_language", "English")
-    if lang.strip().lower() == "english":
-        return ""
-    return f" Write your entire response in {lang}."
+    from finmindagent.language import language_instruction, normalize_language
+
+    raw = get_config().get("output_language", "Chinese")
+    try:
+        canonical = normalize_language(raw)
+    except ValueError:
+        canonical = "zh-CN"  # legacy config values keep the project default
+    return language_instruction(canonical)
 
 
 def build_instrument_context(ticker: str) -> str:

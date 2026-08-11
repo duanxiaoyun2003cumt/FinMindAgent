@@ -1,12 +1,22 @@
-"""Best-effort CLI reporter for FinMindAgent runtime events."""
+"""Best-effort CLI reporter for FinMindAgent runtime events.
+
+Producer/consumer split:
+- Runtime worker thread calls ``on_event()`` — it ONLY enqueues.
+- CLI main thread calls ``drain_events()`` — it converts events into the
+  MessageBuffer. Rich rendering stays entirely on the main thread.
+"""
 
 from __future__ import annotations
 
+import logging
 import re
+from queue import Empty, Queue
 from typing import Any
 
 from finmindagent.runtime.actions import ActionType
 from finmindagent.runtime.events import EventType, RuntimeEvent
+
+logger = logging.getLogger(__name__)
 
 
 AGENT_DISPLAY = {
@@ -47,30 +57,75 @@ class CliRuntimeReporter:
         update_display,
         stats_handler: Any = None,
         start_time: float | None = None,
-        refresh=None,
+        event_queue: Queue | None = None,
     ) -> None:
         self.message_buffer = message_buffer
         self.layout = layout
         self.update_display = update_display
         self.stats_handler = stats_handler
         self.start_time = start_time
-        self.refresh = refresh
-        self._seen_reports: set[str] = set()
+        self.event_queue = event_queue or Queue()
 
-    def on_event(self, event: RuntimeEvent, state: Any) -> None:
+    def on_event(self, event: RuntimeEvent, state: Any = None) -> None:
+        """Runtime-worker-side entry point: enqueue only.
+
+        Runs on the runtime worker thread, so it MUST NOT touch Rich,
+        update_display, live.refresh, or mutate the MessageBuffer.
+        """
         try:
-            self._handle_event(event, state)
-            self.update_display(
-                self.layout,
-                stats_handler=self.stats_handler,
-                start_time=self.start_time,
-            )
-            if callable(self.refresh):
-                self.refresh()
+            self.event_queue.put_nowait(event)
         except Exception:
-            return
+            # Enqueue failure must never terminate the analysis runtime.
+            logger.debug("CLI reporter failed to enqueue event", exc_info=True)
 
-    def _handle_event(self, event: RuntimeEvent, state: Any) -> None:
+    def wait_and_drain(self, timeout: float = 0.1) -> int:
+        """Main-thread consumer: block until an event arrives (or timeout),
+        then handle all pending events in order.
+
+        Event-driven alternative to busy-polling: returns as soon as the
+        first queued event arrives, so rendering happens promptly without a
+        fixed-rate full rebuild. Returns the number of events processed.
+        """
+        try:
+            first = self.event_queue.get(timeout=timeout)
+        except Empty:
+            return 0
+        events = [first]
+        while True:
+            try:
+                events.append(self.event_queue.get_nowait())
+            except Empty:
+                break
+        for event in events:
+            try:
+                self._handle_event(event)
+            except Exception:
+                # One bad event must not kill the rest of the UI pipeline.
+                logger.debug("CLI reporter failed while handling event", exc_info=True)
+        return len(events)
+
+    def drain_events(self, max_events: int | None = None) -> int:
+        """Main-thread consumer: convert queued events into the MessageBuffer.
+
+        Must be called from the CLI main thread, which owns MessageBuffer
+        mutation and all Rich rendering. Returns the number of events
+        processed.
+        """
+        processed = 0
+        while max_events is None or processed < max_events:
+            try:
+                event = self.event_queue.get_nowait()
+            except Empty:
+                break
+            try:
+                self._handle_event(event)
+            except Exception:
+                # One bad event must not kill the rest of the UI pipeline.
+                logger.debug("CLI reporter failed while handling event", exc_info=True)
+            processed += 1
+        return processed
+
+    def _handle_event(self, event: RuntimeEvent) -> None:
         if event.type == EventType.OBSERVATION and event.message == "Runtime started":
             self.message_buffer.add_progress("Runtime started")
             self.message_buffer.add_message("System", "Runtime loop started")
@@ -88,6 +143,12 @@ class CliRuntimeReporter:
             self.message_buffer.update_agent_status(display, "in_progress")
             return
 
+        if event.type == EventType.LLM_CALL:
+            # LLM/structured invoke blocks for 20-60s; show where we are.
+            display = AGENT_DISPLAY.get(event.actor, event.actor)
+            self.message_buffer.add_progress(f"{display} generating response...")
+            return
+
         if event.type == EventType.TOOL_CALL:
             action = event.action
             tool_name = action.tool_name if action else "unknown_tool"
@@ -98,16 +159,19 @@ class CliRuntimeReporter:
             return
 
         if event.type == EventType.OBSERVATION:
-            self._handle_observation(event, state)
+            self._handle_observation(event)
             return
 
         if event.type == EventType.FINAL:
+            # The FINAL event already carries the full decision text in
+            # observation (or the stop reason in message) — no state access.
             self.message_buffer.add_progress("Portfolio Manager generated final_trade_decision")
             self.message_buffer.add_message("Final", self._summarize(event.observation or event.message))
-            if getattr(state, "final_trade_decision", None):
+            if event.observation:
+                # Authoritative section keeps the FULL final decision text.
                 self.message_buffer.update_report_section(
                     "final_trade_decision",
-                    self._summarize_markdown(state.final_trade_decision),
+                    str(event.observation),
                 )
             return
 
@@ -115,33 +179,35 @@ class CliRuntimeReporter:
             self.message_buffer.add_progress(f"Error: {self._summarize(event.message)}")
             self.message_buffer.add_message("Error", self._summarize(event.message))
 
-    def _handle_observation(self, event: RuntimeEvent, state: Any) -> None:
+    def _handle_observation(self, event: RuntimeEvent) -> None:
         action = event.action
         if action and action.type == ActionType.CALL_TOOL:
             self._record_tool_result(action.tool_name or "unknown_tool", event.observation)
             return
 
         if action and action.type == ActionType.CALL_AGENT:
+            # event.observation IS the final Agent report returned by
+            # _call_agent(). The reporter is fully event-driven and never
+            # reads the mutable TradingRunState.
             agent_name = action.target_agent or event.actor
             display = AGENT_DISPLAY.get(agent_name, agent_name)
-            report_key = REPORT_BY_AGENT.get(agent_name)
-            if report_key and report_key in getattr(state, "reports", {}):
-                report = state.reports[report_key]
+            report = event.observation
+            if report:
                 self.message_buffer.update_agent_status(display, "completed")
                 self.message_buffer.add_progress(f"{display} report generated")
                 self.message_buffer.add_message("Agent", f"{display}: {self._summarize(report)}")
-                self.message_buffer.update_report_section(report_key, self._summarize_markdown(report))
-                self._seen_reports.add(report_key)
+                report_key = REPORT_BY_AGENT.get(agent_name)
+                if report_key:
+                    # Authoritative official section keeps the FULL report.
+                    self.message_buffer.update_report_section(report_key, str(report))
+                # Current Report shows THIS agent right now; the CLI preview
+                # may truncate, the official section above never does.
+                self.message_buffer.update_current_report(
+                    display, self._summarize_markdown(report, max_chars=2000)
+                )
             else:
                 self.message_buffer.add_message(event.actor, self._summarize(event.observation))
             return
-
-        for report_key, report in getattr(state, "reports", {}).items():
-            if report_key in self._seen_reports:
-                continue
-            if report_key in set(REPORT_BY_AGENT.values()):
-                self.message_buffer.update_report_section(report_key, self._summarize_markdown(report))
-                self._seen_reports.add(report_key)
 
     def _record_tool_result(self, tool_name: str, observation: Any) -> None:
         if isinstance(observation, dict):

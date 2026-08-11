@@ -1,4 +1,4 @@
-﻿"""Prompt text shared by runtime leader and sub-agents."""
+"""Prompt text shared by runtime leader and sub-agents."""
 
 STATIC_SYSTEM_PROMPT = """You are FinMindAgent Runtime, a financial research orchestration system.
 
@@ -32,3 +32,4 @@ def external_data_block(source: str, text: str, trusted: bool = False) -> str:
         f"{text}\n"
         "</external_data>"
     )
+

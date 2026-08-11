@@ -1,4 +1,4 @@
-﻿"""Runtime registry for data tools."""
+"""Runtime registry for data tools."""
 
 from __future__ import annotations
 
@@ -75,6 +75,10 @@ def default_tool_specs() -> list[ToolSpec]:
         _spec(get_balance_sheet, "Fetch balance sheet data.", "fundamentals", "assets liabilities equity"),
         _spec(get_cashflow, "Fetch cashflow statement data.", "fundamentals", "operating free cash flow"),
         _spec(get_income_statement, "Fetch income statement data.", "fundamentals", "revenue margin earnings"),
+        _spec(get_analyst_expectations, "Fetch analyst price targets, forward EPS/revenue estimates, and recommendation summary.", "fundamentals", "analyst estimates price target consensus forward earnings revenue"),
+        _spec(get_company_calendar, "Fetch company calendar including earnings dates.", "news", "earnings date calendar event"),
+        _spec(get_earnings_history, "Fetch historical earnings dates with EPS estimate/reported pairs.", "fundamentals", "earnings history surprise estimate reported"),
+        _spec(get_holder_context, "Fetch major, institutional, and mutual fund holder data.", "fundamentals", "holder ownership institutional mutual fund"),
     ]
 
 
@@ -136,6 +140,22 @@ def get_income_statement(
     curr_date: str | None = None,
 ) -> str:
     return _route_to_vendor("get_income_statement", ticker, freq, curr_date)
+
+
+def get_analyst_expectations(ticker: str, curr_date: str | None = None) -> str:
+    return _route_to_vendor("get_analyst_expectations", ticker, curr_date)
+
+
+def get_company_calendar(ticker: str, curr_date: str | None = None) -> str:
+    return _route_to_vendor("get_company_calendar", ticker, curr_date)
+
+
+def get_earnings_history(ticker: str, curr_date: str | None = None, limit: int = 8) -> str:
+    return _route_to_vendor("get_earnings_history", ticker, curr_date, limit)
+
+
+def get_holder_context(ticker: str, curr_date: str | None = None, limit: int = 10) -> str:
+    return _route_to_vendor("get_holder_context", ticker, curr_date, limit)
 
 
 def _route_to_vendor(tool_name: str, *args: Any) -> str:

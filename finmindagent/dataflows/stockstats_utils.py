@@ -1,4 +1,4 @@
-﻿import time
+import time
 import logging
 
 import pandas as pd
@@ -8,6 +8,7 @@ from stockstats import wrap
 from typing import Annotated
 import os
 from .config import get_config
+from .market_asof import resolve_market_data_cutoff, validate_analysis_date
 from .utils import safe_ticker_component
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,10 @@ def _clean_dataframe(data: pd.DataFrame) -> pd.DataFrame:
 def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     """Fetch OHLCV data with caching, filtered to prevent look-ahead bias.
 
-    Downloads 15 years of data up to today and caches per symbol. On
-    subsequent calls the cache is reused. Rows after curr_date are
-    filtered out so backtests never see future prices.
+    Downloads data up to today and caches per symbol. On subsequent calls
+    the cache is reused. Rows after the resolved completed-session cutoff
+    are filtered out BEFORE any fill step, so backtests never see future
+    or partial-day prices and bfill cannot backfill from the future.
     """
     # Reject ticker values that would escape the cache directory when
     # interpolated into the cache filename (e.g. ``../../tmp/x``).
@@ -85,10 +87,22 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
         data = data.reset_index()
         data.to_csv(data_file, index=False, encoding="utf-8")
 
-    data = _clean_dataframe(data)
+    # Point-in-time governance: Guard A rejects only true future analysis
+    # dates (vs the system date); Guard B clamps the as-of boundary to the
+    # latest COMPLETED market session (cross-timezone skew and pre-open
+    # current days resolve backward). Bars after the boundary are dropped
+    # BEFORE any fill/clean step, so bfill can never backfill a future
+    # value into the permitted window.
+    validate_analysis_date(curr_date)
+    cutoff = resolve_market_data_cutoff(curr_date)
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    # Drop exchange tz from the date column so comparisons stay in
+    # market-local wall-clock semantics (cutoff is a market-local date).
+    if getattr(data["Date"].dtype, "tz", None) is not None:
+        data["Date"] = data["Date"].dt.tz_localize(None)
+    data = data[data["Date"] <= pd.Timestamp(cutoff)]
 
-    # Filter to curr_date to prevent look-ahead bias in backtesting
-    data = data[data["Date"] <= curr_date_dt]
+    data = _clean_dataframe(data)
 
     return data
 

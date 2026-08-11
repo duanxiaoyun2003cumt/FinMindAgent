@@ -1,7 +1,9 @@
-﻿# Runtime Loop Architecture
+# Runtime Loop Architecture
 
 FinMindAgent now runs through a Claude Code style runtime in
-`finmindagent/runtime/`. 
+`finmindagent/runtime/`. The old fixed LangGraph DAG has been removed.
+`FinMindAgentGraph.propagate()` remains only as a compatibility facade over
+the runtime loop.
 
 ## Main Flow
 
@@ -21,7 +23,7 @@ FinMindAgent now runs through a Claude Code style runtime in
 ## Core Modules
 
 - `engine.py`: `FinMindAgentLoop`, sub-agent specs, deterministic fallback leader.
-- `state.py`: `FinMindRunState` and legacy state projection.
+- `state.py`: `TradingRunState` and legacy state projection.
 - `actions.py`: Pydantic action schema.
 - `events.py`: event stream schema.
 - `tool_registry.py`: allowlisted data tools and metadata.
@@ -52,3 +54,15 @@ The runtime exposes the original FinMindAgent roles as callable specialists:
 Analyst agents receive only their local tool observations. Debate, trader,
 risk, and portfolio agents receive report summaries rather than unbounded raw
 tool output.
+
+## Compatibility
+
+`FinMindAgentGraph.propagate(ticker, date)` still returns:
+
+```python
+(final_state, processed_signal)
+```
+
+The `final_state` keeps the existing keys such as `market_report`,
+`investment_plan`, `trader_investment_plan`, `risk_debate_state`, and
+`final_trade_decision`.

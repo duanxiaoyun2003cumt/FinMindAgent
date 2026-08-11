@@ -1,11 +1,13 @@
 from typing import Optional
-import datetime
 import typer
+from finmindagent.time_utils import now_system
 from pathlib import Path
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
 from rich.console import Console
 from dotenv import load_dotenv
-
+import datetime
 # Load environment variables
 load_dotenv()
 load_dotenv(".env.enterprise", override=False)
@@ -77,6 +79,13 @@ class MessageBuffer:
         self.messages = deque(maxlen=max_length)
         self.tool_calls = deque(maxlen=max_length)
         self.progress_events = deque(maxlen=max_length)
+        # Unified, monotonically-ordered activity timeline for Messages &
+        # Tools. Entries: (seq, timestamp, kind, content). Display order MUST
+        # come from seq — never from re-sorting HH:MM:SS timestamps, which
+        # scrambles same-second events from different deques.
+        self.activity_events = deque(maxlen=max_length)
+        self._activity_seq = 0
+        self.current_activity = None  # single "what is happening now" line
         self.current_report = None
         self.final_report = None  # Store the complete final report
         self.agent_status = {}
@@ -116,9 +125,12 @@ class MessageBuffer:
         self.current_report = None
         self.final_report = None
         self.current_agent = None
+        self.current_activity = None
         self.messages.clear()
         self.tool_calls.clear()
         self.progress_events.clear()
+        self.activity_events.clear()
+        self._activity_seq = 0
         self._processed_message_ids.clear()
 
     def get_completed_reports_count(self):
@@ -142,17 +154,26 @@ class MessageBuffer:
                 count += 1
         return count
 
+    def _append_activity(self, timestamp, kind, content):
+        self._activity_seq += 1
+        self.activity_events.append((self._activity_seq, timestamp, kind, content))
+
     def add_message(self, message_type, content):
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = now_system().strftime("%H:%M:%S")
         self.messages.append((timestamp, message_type, content))
+        self._append_activity(timestamp, message_type, content)
 
     def add_tool_call(self, tool_name, args):
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = now_system().strftime("%H:%M:%S")
         self.tool_calls.append((timestamp, tool_name, args))
+        self._append_activity(timestamp, "Tool", f"{tool_name}: {format_tool_args(args)}")
 
     def add_progress(self, content):
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = now_system().strftime("%H:%M:%S")
         self.progress_events.append((timestamp, content))
+        # Progress history stays in the log; the UI keeps a single current
+        # activity line so the Progress panel stays focused on agent status.
+        self.current_activity = content
 
     def update_agent_status(self, agent, status):
         if agent in self.agent_status:
@@ -163,6 +184,16 @@ class MessageBuffer:
         if section_name in self.report_sections:
             self.report_sections[section_name] = content
             self._update_current_report()
+
+    def update_current_report(self, title, content):
+        """Show what the CLI is displaying right now.
+
+        Decoupled from official report_sections so temporary agent reports
+        (Bull/Bear/Risk) never pollute formal section semantics. Content is
+        the CLI preview and may be truncated; authoritative sections keep
+        the full report text.
+        """
+        self.current_report = f"### {title}\n{content}"
 
     def _update_current_report(self):
         # For the panel display, only show the most recently updated section
@@ -254,6 +285,23 @@ def create_layout():
     return layout
 
 
+def _adapt_layout_to_height(layout, height):
+    """Compress layout chrome on short terminals.
+
+    On 24-30 row screens the default chrome (header 3 + footer 3 rows and a
+    3:5 upper/analysis split) leaves the Progress table almost no content
+    rows after Panel padding, so the active agent gets clipped. Squeeze the
+    chrome and give the upper half (Progress + Messages) more of the main
+    area instead of letting Rich clip the current state.
+    """
+    if not height or height > 30:
+        return
+    layout["header"].size = 1
+    layout["footer"].size = 1
+    layout["upper"].ratio = 5
+    layout["analysis"].ratio = 5
+
+
 def format_tokens(n):
     """Format token count for display."""
     if n >= 1000:
@@ -288,21 +336,6 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     progress_table.add_column("Agent", style="green", justify="center", width=20)
     progress_table.add_column("Status", style="yellow", justify="center", width=20)
 
-    # Put live runtime progress at the top so it is not clipped below the
-    # agent status table on shorter terminals.
-    recent_progress_top = list(message_buffer.progress_events)[-8:]
-    if recent_progress_top:
-        progress_table.add_row("[bold]Time[/bold]", "[bold]Runtime Progress[/bold]", "", style="cyan")
-        for timestamp, content in reversed(recent_progress_top):
-            text = str(content)
-            if len(text) > 90:
-                text = text[:87] + "..."
-            progress_table.add_row(timestamp, Text(text, overflow="fold"), "")
-        progress_table.add_row("", "", "", style="dim")
-    else:
-        progress_table.add_row("--", "Waiting for runtime events...", "")
-        progress_table.add_row("", "", "", style="dim")
-
     # Group agents by team - filter to only include agents in agent_status
     all_teams = {
         "Analyst Team": [
@@ -324,7 +357,17 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         if active_agents:
             teams[team] = active_agents
 
+    # Render the team with the active (in_progress) agent first. Rich clips
+    # table rows from the bottom on short terminals, so on 24-30 row screens
+    # the current agent stays visible instead of being cut off.
+    ordered_teams = list(teams)
     for team, agents in teams.items():
+        if any(message_buffer.agent_status.get(a) == "in_progress" for a in agents):
+            ordered_teams = [team] + [t for t in ordered_teams if t != team]
+            break
+
+    for team in ordered_teams:
+        agents = teams[team]
         # Add first agent with team name
         first_agent = agents[0]
         status = message_buffer.agent_status.get(first_agent, "pending")
@@ -363,7 +406,13 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         progress_table.add_row("-" * 20, "-" * 20, "-" * 20, style="dim")
 
     layout["progress"].update(
-        Panel(progress_table, title="Progress", border_style="cyan", padding=(1, 2))
+        Panel(
+            progress_table,
+            title="Progress",
+            subtitle=message_buffer.current_activity or None,
+            border_style="cyan",
+            padding=(1, 2),
+        )
     )
 
     # Messages panel showing recent messages and tool calls
@@ -382,34 +431,21 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         "Content", style="white", no_wrap=False, ratio=1
     )  # Make content column expand
 
-    # Combine tool calls and messages
-    all_messages = []
+    # Unified activity timeline, newest-first by monotonic seq. Never
+    # re-sort by HH:MM:SS — same-second events from different sources would
+    # scramble (Tool Result before its Tool Call etc.).
+    # Budget: show a few complete, ordered entries instead of a fixed 12
+    # that Rich silently clips on short terminals.
+    max_messages = 6
+    recent_activity = list(message_buffer.activity_events)[-max_messages:]
 
-    # Add tool calls
-    for timestamp, tool_name, args in message_buffer.tool_calls:
-        formatted_args = format_tool_args(args)
-        all_messages.append((timestamp, "Tool", f"{tool_name}: {formatted_args}"))
-
-    # Add regular messages
-    for timestamp, msg_type, content in message_buffer.messages:
+    # Add messages to table (already in newest-first order)
+    for seq, timestamp, msg_type, content in reversed(recent_activity):
         content_str = str(content) if content else ""
         if len(content_str) > 200:
             content_str = content_str[:197] + "..."
-        all_messages.append((timestamp, msg_type, content_str))
-
-    # Sort by timestamp descending (newest first)
-    all_messages.sort(key=lambda x: x[0], reverse=True)
-
-    # Calculate how many messages we can show based on available space
-    max_messages = 12
-
-    # Get the first N messages (newest ones)
-    recent_messages = all_messages[:max_messages]
-
-    # Add messages to table (already in newest-first order)
-    for timestamp, msg_type, content in recent_messages:
         # Format content with word wrapping
-        wrapped_content = Text(content, overflow="fold")
+        wrapped_content = Text(content_str, overflow="fold")
         messages_table.add_row(timestamp, msg_type, wrapped_content)
 
     layout["messages"].update(
@@ -483,6 +519,53 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
 
 
+# Main thread owns ALL Rich rendering. The runtime worker thread only emits
+# events into the reporter queue; this loop drains them and renders on the
+# main thread while graph.propagate() is still blocking on the worker.
+# Event-driven: render when events arrive; fall back to a low-frequency
+# timer tick only for the elapsed-time footer.
+UI_REFRESH_INTERVAL = 0.1
+FOOTER_REFRESH_INTERVAL = 1.0
+
+
+def spin_runtime_ui(
+    future,
+    live,
+    layout,
+    reporter,
+    stats_handler=None,
+    start_time=None,
+    interval: float = UI_REFRESH_INTERVAL,
+):
+    """Main-thread UI loop: consume runtime events and render until the
+    runtime future completes.
+
+    Event-driven like the old CLI's "chunk arrived → render" model: the
+    main thread blocks on the event queue (``wait_and_drain``) and renders
+    immediately when events arrive — no busy 50ms full rebuild. When no
+    events are pending, the footer elapsed timer refreshes at most once per
+    second.
+
+    This is the ONLY place that refreshes Rich during a run. Runs on the
+    CLI main thread; ``reporter.wait_and_drain()`` mutates the MessageBuffer
+    (also main thread only), then update_display + live.refresh repaint the
+    terminal.
+    """
+    last_tick = time.monotonic()
+    while not future.done():
+        changed = reporter.wait_and_drain(timeout=interval)
+        now = time.monotonic()
+        if changed or (now - last_tick) >= FOOTER_REFRESH_INTERVAL:
+            update_display(layout, stats_handler=stats_handler, start_time=start_time)
+            live.refresh()
+            last_tick = now
+    # Runtime may have emitted events immediately before future completion.
+    # Drain everything one final time before reading the result.
+    reporter.drain_events()
+    update_display(layout, stats_handler=stats_handler, start_time=start_time)
+    live.refresh()
+
+
 def get_user_selections():
     """Get all user selections before starting the analysis display."""
     # Display ASCII art welcome message
@@ -531,7 +614,7 @@ def get_user_selections():
     selected_ticker = get_ticker()
 
     # Step 2: Analysis date
-    default_date = datetime.datetime.now().strftime("%Y-%m-%d")
+    default_date = now_system().strftime("%Y-%m-%d")
     console.print(
         create_question_box(
             "Step 2: Analysis Date",
@@ -642,12 +725,12 @@ def get_analysis_date():
     """Get the analysis date from user input."""
     while True:
         date_str = typer.prompt(
-            "", default=datetime.datetime.now().strftime("%Y-%m-%d")
+            "", default=now_system().strftime("%Y-%m-%d")
         )
         try:
             # Validate date format and ensure it's not in the future
             analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-            if analysis_date.date() > datetime.datetime.now().date():
+            if analysis_date.date() > now_system().date():
                 console.print("[red]Error: Analysis date cannot be in the future[/red]")
                 continue
             return date_str
@@ -742,7 +825,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {now_system().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"
 
@@ -1048,10 +1131,25 @@ def run_analysis(checkpoint: bool = False):
 
     # Now start the display layout
     layout = create_layout()
+    _adapt_layout_to_height(layout, console.size.height)
 
-    with Live(layout, refresh_per_second=4) as live:
+    # Run through the compatibility graph facade, which now owns the
+    # runtime loop, memory, permission audit, artifacts, and logging path.
+    # The reporter is producer/consumer: the runtime worker only enqueues
+    # events; the main thread drains and renders them.
+    reporter = CliRuntimeReporter(
+        message_buffer=message_buffer,
+        layout=layout,
+        update_display=update_display,
+        stats_handler=stats_handler,
+        start_time=start_time,
+    )
+    graph.runtime_loop.set_event_observer(reporter.on_event)
+
+    with Live(layout, console=console, auto_refresh=False) as live:
         # Initial display
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
+        live.refresh()
 
         # Add initial messages
         message_buffer.add_message("System", f"Selected ticker: {selections['ticker']}")
@@ -1074,26 +1172,31 @@ def run_analysis(checkpoint: bool = False):
             f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
         )
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
+        live.refresh()
 
-        # Run through the compatibility graph facade, which now owns the
-        # runtime loop, memory, permission audit, artifacts, and logging path.
-        reporter = CliRuntimeReporter(
-            message_buffer=message_buffer,
-            layout=layout,
-            update_display=update_display,
-            stats_handler=stats_handler,
-            start_time=start_time,
-            refresh=live.refresh,
-        )
-        graph.runtime_loop.config["runtime_event_observer"] = reporter.on_event
         message_buffer.add_progress("Initialize FinMindAgentGraph")
         message_buffer.add_progress("Load config")
         message_buffer.add_progress("Load / parse memory")
         message_buffer.add_message("System", "Starting runtime loop")
         update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
-        final_state, decision = graph.propagate(
-            selections["ticker"], selections["analysis_date"]
-        )
+
+        # Runtime runs on a worker thread; this thread owns ALL Rich rendering.
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="finmind-runtime") as executor:
+            future = executor.submit(
+                graph.propagate,
+                selections["ticker"],
+                selections["analysis_date"],
+            )
+            spin_runtime_ui(
+                future,
+                live,
+                layout,
+                reporter,
+                stats_handler=stats_handler,
+                start_time=start_time,
+            )
+            final_state, decision = future.result()
+
         message_buffer.add_progress("Write full state log")
         if final_state.get("final_trade_decision"):
             message_buffer.add_progress("Write / update trading_memory.md")
@@ -1113,6 +1216,7 @@ def run_analysis(checkpoint: bool = False):
                 message_buffer.update_report_section(section, final_state[section])
 
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
+        live.refresh()
 
     # Post-analysis prompts (outside Live context for clean interaction)
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
@@ -1120,7 +1224,7 @@ def run_analysis(checkpoint: bool = False):
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
     if save_choice in ("Y", "YES", ""):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = now_system().strftime("%Y%m%d_%H%M%S")
         default_path = Path.cwd() / "reports" / f"{selections['ticker']}_{timestamp}"
         save_path_str = typer.prompt(
             "Save path (press Enter for default)",

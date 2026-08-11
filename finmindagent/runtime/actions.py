@@ -1,4 +1,4 @@
-﻿"""Structured action schema for the FinMindAgent runtime loop."""
+"""Structured action schema for the FinMindAgent runtime loop."""
 
 from __future__ import annotations
 
@@ -64,3 +64,4 @@ def repair_action(raw: Any) -> AgentAction:
     if start == -1 or end == -1 or end <= start:
         raise ValueError("No JSON object found in action output")
     return AgentAction.parse_action(text[start : end + 1])
+

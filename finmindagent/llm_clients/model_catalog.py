@@ -1,4 +1,4 @@
-﻿"""Shared model catalog for CLI selections and validation."""
+"""Shared model catalog for CLI selections and validation."""
 
 from __future__ import annotations
 
@@ -64,15 +64,15 @@ MODEL_OPTIONS: ProviderModeOptions = {
         ],
     },
     "deepseek": {
+        # Current DeepSeek V4 production models only. Retired legacy API
+        # aliases (deepseek-chat / deepseek-reasoner) are NOT exposed here;
+        # they remain handled in backwards-compatibility code paths only.
         "quick": [
             ("DeepSeek V4 Flash - Latest V4 fast model", "deepseek-v4-flash"),
-            ("DeepSeek V3.2", "deepseek-chat"),
             ("Custom model ID", "custom"),
         ],
         "deep": [
             ("DeepSeek V4 Pro - Latest V4 flagship model", "deepseek-v4-pro"),
-            ("DeepSeek V3.2 (thinking)", "deepseek-reasoner"),
-            ("DeepSeek V3.2", "deepseek-chat"),
             ("Custom model ID", "custom"),
         ],
     },

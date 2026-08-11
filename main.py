@@ -8,8 +8,8 @@ from finmindagent.graph.trading_graph import FinMindAgentGraph
 load_dotenv()
 
 config = DEFAULT_CONFIG.copy()
-ticker = "MSFT"
-trade_date = "2026-05-18"
+ticker = "AMD"
+trade_date = "2026-08-11"
 
 fma = FinMindAgentGraph(debug=True, config=config)
 

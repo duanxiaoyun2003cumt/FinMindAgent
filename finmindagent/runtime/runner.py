@@ -1,4 +1,4 @@
-﻿"""Runtime construction and compatibility helpers."""
+"""Runtime construction and compatibility helpers."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from finmindagent.agents.utils.memory import FinMindMemoryLog
+from finmindagent.agents.utils.memory import TradingMemoryLog
 from finmindagent.dataflows.config import set_config
 from finmindagent.default_config import DEFAULT_CONFIG
 from finmindagent.llm_clients import create_llm_client
@@ -33,6 +33,26 @@ def create_runtime(config: dict[str, Any] | None = None, callbacks: list[Any] | 
     quick_llm = _create_llm(cfg, cfg["quick_think_llm"], llm_kwargs)
     deep_llm = _create_llm(cfg, cfg["deep_think_llm"], llm_kwargs)
 
+    # Phase A: structured-output fallback model. When the primary model
+    # (deep_llm for PM/RM, quick_llm for analysts) doesn't support
+    # structured output, this model is used instead for structured calls.
+    # If not configured, structured-required agents fall back to free text.
+    structured_fallback_model = cfg.get("structured_output_fallback_model")
+    if structured_fallback_model:
+        structured_llm = _create_llm(cfg, structured_fallback_model, llm_kwargs)
+    elif cfg.get("structured_output", {}).get("fallback_model"):
+        structured_llm = _create_llm(
+            cfg, cfg["structured_output"]["fallback_model"], llm_kwargs
+        )
+    else:
+        # Default: when deep model is unsupported for structured output,
+        # use the quick model as structured fallback (it supports it).
+        # Only auto-wire if models differ (avoid redundant client).
+        if cfg["deep_think_llm"] != cfg["quick_think_llm"]:
+            structured_llm = quick_llm
+        else:
+            structured_llm = None
+
     tool_registry = ToolRegistry()
     runtime_dir = Path(cfg["results_dir"]) / "runtime"
     memory_dir = cfg.get("memory_dir") or str(Path(cfg.get("memory_log_path", runtime_dir / "memory.md")).parent / "structured")
@@ -47,7 +67,6 @@ def create_runtime(config: dict[str, Any] | None = None, callbacks: list[Any] | 
         quick_llm=quick_llm,
         max_context_tokens=int(cfg.get("runtime_context_tokens", 80_000)),
         artifact_dir=runtime_dir / "artifacts",
-        output_language=str(cfg.get("output_language", "English")),
     )
     return FinMindAgentLoop(
         config=cfg,
@@ -57,6 +76,7 @@ def create_runtime(config: dict[str, Any] | None = None, callbacks: list[Any] | 
         memory_manager=memory_manager,
         permission_manager=permission_manager,
         context_manager=context_manager,
+        structured_llm=structured_llm,
     )
 
 
@@ -98,6 +118,6 @@ def _provider_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
 
 def _store_legacy_memory(config: dict[str, Any], ticker: str, trade_date: str, decision: str) -> None:
     try:
-        FinMindMemoryLog(config).store_decision(ticker, trade_date, decision)
+        TradingMemoryLog(config).store_decision(ticker, trade_date, decision)
     except Exception:
         pass

@@ -1,4 +1,4 @@
-﻿"""Tests for the shared rating heuristic and the SignalProcessor adapter.
+"""Tests for the shared rating heuristic and the SignalProcessor adapter.
 
 The Portfolio Manager produces a typed PortfolioDecision via structured
 output and renders it to markdown that always contains a ``**Rating**: X``

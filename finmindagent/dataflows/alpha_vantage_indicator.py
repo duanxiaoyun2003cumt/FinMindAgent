@@ -1,4 +1,4 @@
-﻿from .alpha_vantage_common import _make_api_request
+from .alpha_vantage_common import _make_api_request
 
 def get_indicator(
     symbol: str,

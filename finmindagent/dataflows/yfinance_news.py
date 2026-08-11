@@ -1,4 +1,4 @@
-﻿"""yfinance-based news data fetching functions."""
+"""yfinance-based news data fetching functions."""
 
 import yfinance as yf
 from datetime import datetime
@@ -88,6 +88,8 @@ def get_news_yfinance(
                     continue
 
             news_str += f"### {data['title']} (source: {data['publisher']})\n"
+            if data["pub_date"]:
+                news_str += f"Published: {data['pub_date'].strftime('%Y-%m-%d')}\n"
             if data["summary"]:
                 news_str += f"{data['summary']}\n"
             if data["link"]:
@@ -166,6 +168,7 @@ def get_global_news_yfinance(
 
         news_str = ""
         for article in all_news[:limit]:
+            pub_date = None
             # Handle both flat and nested structures
             if "content" in article:
                 data = _extract_article_data(article)
@@ -178,6 +181,7 @@ def get_global_news_yfinance(
                 publisher = data["publisher"]
                 link = data["link"]
                 summary = data["summary"]
+                pub_date = data["pub_date"]
             else:
                 title = article.get("title", "No title")
                 publisher = article.get("publisher", "Unknown")
@@ -185,6 +189,8 @@ def get_global_news_yfinance(
                 summary = ""
 
             news_str += f"### {title} (source: {publisher})\n"
+            if pub_date is not None:
+                news_str += f"Published: {pub_date.strftime('%Y-%m-%d')}\n"
             if summary:
                 news_str += f"{summary}\n"
             if link:

@@ -1,4 +1,4 @@
-﻿"""Context compaction helpers."""
+"""Context compaction helpers."""
 
 from __future__ import annotations
 

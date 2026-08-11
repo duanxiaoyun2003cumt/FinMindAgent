@@ -1,13 +1,14 @@
-﻿"""Markdown frontmatter memory store."""
+"""Markdown frontmatter memory store."""
 
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
 from finmindagent.runtime.memory.schemas import MemoryItem
+from finmindagent.time_utils import now_system, system_timestamp
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
 
@@ -36,7 +37,7 @@ class MemoryStore:
 
     def write(self, item: MemoryItem) -> Path:
         path = self.memory_dir / f"{safe_memory_filename(item.id)}.md"
-        now = datetime.now(timezone.utc).isoformat()
+        now = system_timestamp()
         item.updated_at = item.updated_at or now
         item.created_at = item.created_at or now
         frontmatter = {
@@ -118,7 +119,7 @@ def is_stale(item: MemoryItem) -> bool:
         return False
     try:
         updated = datetime.fromisoformat(item.updated_at.replace("Z", "+00:00"))
-        age = datetime.now(timezone.utc) - updated
+        age = now_system() - updated
         return age.days > item.stale_after_days
     except Exception:
         return False

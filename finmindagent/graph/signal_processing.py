@@ -1,4 +1,4 @@
-﻿"""Extract the 5-tier portfolio rating from the Portfolio Manager's decision.
+"""Extract the 5-tier portfolio rating from the Portfolio Manager's decision.
 
 The Portfolio Manager produces a typed ``PortfolioDecision`` via structured
 output and renders it to markdown that always carries a ``**Rating**: X``

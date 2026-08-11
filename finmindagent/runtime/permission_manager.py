@@ -1,4 +1,4 @@
-﻿"""Code-level runtime permission manager."""
+"""Code-level runtime permission manager."""
 
 from __future__ import annotations
 
@@ -73,7 +73,15 @@ class PermissionManager:
             if classified.decision != PermissionDecision.ALLOW:
                 return self._record(state, action, actor, classified.decision, classified.reason)
 
-        return self._record(state, action, actor, PermissionDecision.ALLOW, "Allowed by runtime permission rules.")
+        # Internal analytical finalization: writes the already-generated
+        # PortfolioDecision into runtime state — no tool, no broker, no
+        # exchange, no external side effect. Capability-based reason, never
+        # a payload self-declaration.
+        if action.type == ActionType.FINALIZE_DECISION:
+            reason = "Internal analytical finalization; no external trading side effect."
+        else:
+            reason = "Allowed by runtime permission rules."
+        return self._record(state, action, actor, PermissionDecision.ALLOW, reason)
 
     def _record(
         self,

@@ -1,4 +1,4 @@
-﻿"""Optional LLM permission classifier.
+"""Optional LLM permission classifier.
 
 The rule engine is authoritative. This classifier is only used for ambiguous
 actions and fails closed when parsing or invocation fails.

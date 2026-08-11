@@ -1,4 +1,4 @@
-﻿"""Memory schemas for active recall."""
+"""Memory schemas for active recall."""
 
 from __future__ import annotations
 

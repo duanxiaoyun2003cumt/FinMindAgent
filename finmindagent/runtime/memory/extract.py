@@ -1,25 +1,26 @@
-﻿"""Memory extraction at the end of a runtime run."""
+"""Memory extraction at the end of a runtime run."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from finmindagent.runtime.memory.schemas import MemoryItem
+from finmindagent.time_utils import system_timestamp
 from finmindagent.runtime.memory.store import MemoryStore
-from finmindagent.runtime.state import FinMindRunState
+from finmindagent.runtime.state import TradingRunState
 
 
 class MemoryExtractor:
     def __init__(self, store: MemoryStore):
         self.store = store
 
-    def extract(self, state: FinMindRunState) -> list[Path]:
+    def extract(self, state: TradingRunState) -> list[Path]:
         if state.metadata.get("memory_written"):
             return []
         if not state.final_trade_decision:
             return []
-        now = datetime.now(timezone.utc).isoformat()
+        now = system_timestamp()
         item = MemoryItem(
             id=f"decision_{state.ticker}_{state.trade_date}_{state.run_id[:8]}",
             type="decision_reflection",

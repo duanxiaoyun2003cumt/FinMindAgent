@@ -1,4 +1,4 @@
-﻿"""Tests for the ticker path-component validator that blocks directory traversal."""
+"""Tests for the ticker path-component validator that blocks directory traversal."""
 
 import os
 import unittest

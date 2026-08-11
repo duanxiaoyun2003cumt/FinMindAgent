@@ -1,21 +1,13 @@
-﻿import os
+import os
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-APP_BRAND = "FinMindAgent"
-# Keep the historical project-local directory for data compatibility. New
-# FinMindAgent environment variables are preferred, and legacy variables remain
-# supported as fallback overrides.
 _FINMINDAGENT_HOME = os.path.join(_PROJECT_ROOT, ".finmindagent")
-
-
-
 
 DEFAULT_CONFIG = {
     "project_dir": _PROJECT_ROOT,
-    "app_brand": APP_BRAND,
-    "results_dir": os.path.join(_FINMINDAGENT_HOME, "logs"),
-    "data_cache_dir": os.path.join(_FINMINDAGENT_HOME, "cache"),
-    "memory_log_path": os.path.join(_FINMINDAGENT_HOME, "memory", "trading_memory.md"),
+    "results_dir": os.getenv("FINMINDAGENT_RESULTS_DIR", os.path.join(_FINMINDAGENT_HOME, "logs")),
+    "data_cache_dir": os.getenv("FINMINDAGENT_CACHE_DIR", os.path.join(_FINMINDAGENT_HOME, "cache")),
+    "memory_log_path": os.getenv("FINMINDAGENT_MEMORY_LOG_PATH", os.path.join(_FINMINDAGENT_HOME, "memory", "trading_memory.md")),
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
@@ -42,10 +34,12 @@ DEFAULT_CONFIG = {
     "runtime_max_tokens": 120_000,
     "permission_mode": "safe",
     "max_position_pct": 10,
-    "strategy_log_dir_name": "FinMindAgentStrategy_logs",
+    # Market data lookback in calendar days — used for get_stock_data and
+    # get_indicators default lookback so we reliably have ~60 trading days.
+    "market_lookback_days": 120,
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
-    "output_language": "English",
+    "output_language": "Chinese",
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,

@@ -1,4 +1,4 @@
-﻿"""Active recall selection for structured memories."""
+"""Active recall selection for structured memories."""
 
 from __future__ import annotations
 

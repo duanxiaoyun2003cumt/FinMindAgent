@@ -1,4 +1,4 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 # Import from vendor-specific modules
 from .y_finance import (
@@ -9,6 +9,10 @@ from .y_finance import (
     get_cashflow as get_yfinance_cashflow,
     get_income_statement as get_yfinance_income_statement,
     get_insider_transactions as get_yfinance_insider_transactions,
+    get_analyst_expectations as get_yfinance_analyst_expectations,
+    get_company_calendar as get_yfinance_company_calendar,
+    get_earnings_history as get_yfinance_earnings_history,
+    get_holder_context as get_yfinance_holder_context,
 )
 from .yfinance_news import get_news_yfinance, get_global_news_yfinance
 from .alpha_vantage import (
@@ -47,7 +51,10 @@ TOOLS_CATEGORIES = {
             "get_fundamentals",
             "get_balance_sheet",
             "get_cashflow",
-            "get_income_statement"
+            "get_income_statement",
+            "get_analyst_expectations",
+            "get_earnings_history",
+            "get_holder_context",
         ]
     },
     "news_data": {
@@ -56,6 +63,7 @@ TOOLS_CATEGORIES = {
             "get_news",
             "get_global_news",
             "get_insider_transactions",
+            "get_company_calendar",
         ]
     }
 }
@@ -106,6 +114,19 @@ VENDOR_METHODS = {
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
+    },
+    # P1
+    "get_analyst_expectations": {
+        "yfinance": get_yfinance_analyst_expectations,
+    },
+    "get_company_calendar": {
+        "yfinance": get_yfinance_company_calendar,
+    },
+    "get_earnings_history": {
+        "yfinance": get_yfinance_earnings_history,
+    },
+    "get_holder_context": {
+        "yfinance": get_yfinance_holder_context,
     },
 }
 

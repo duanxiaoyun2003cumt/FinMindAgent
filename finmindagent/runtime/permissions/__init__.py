@@ -1,4 +1,4 @@
-﻿"""Runtime permission management."""
+"""Runtime permission management."""
 
 from finmindagent.runtime.permissions.rules import PermissionDecision, PermissionMode
 

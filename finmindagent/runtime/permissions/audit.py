@@ -1,4 +1,4 @@
-﻿"""JSONL permission audit log."""
+"""JSONL permission audit log."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from finmindagent.runtime.events import utc_now
+from finmindagent.runtime.events import system_now
 
 
 class PermissionAuditLog:
@@ -18,7 +18,7 @@ class PermissionAuditLog:
     def write(self, record: dict[str, Any]) -> None:
         if not self.path:
             return
-        payload = {"timestamp": utc_now(), **record}
+        payload = {"timestamp": system_now(), **record}
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
 

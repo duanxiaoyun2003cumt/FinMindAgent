@@ -1,4 +1,4 @@
-﻿"""Structured runtime memory system."""
+"""Structured runtime memory system."""
 
 from finmindagent.runtime.memory.active_recall import active_recall
 from finmindagent.runtime.memory.schemas import MemoryItem, MemoryType

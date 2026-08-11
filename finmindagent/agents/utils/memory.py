@@ -1,4 +1,4 @@
-﻿"""Append-only markdown decision log for FinMindAgent."""
+"""Append-only markdown decision log for FinMindAgent."""
 
 from typing import List, Optional
 from pathlib import Path
@@ -7,7 +7,7 @@ import re
 from finmindagent.agents.utils.rating import parse_rating
 
 
-class FinMindMemoryLog:
+class TradingMemoryLog:
     """Append-only markdown log of trading decisions and reflections."""
 
     # HTML comment: cannot appear in LLM prose output, safe as a hard delimiter
@@ -302,8 +302,3 @@ class FinMindMemoryLog:
         text = e["decision"][:300]
         suffix = "..." if len(e["decision"]) > 300 else ""
         return f"{tag}\n{text}{suffix}"
-
-
-TradingMemoryLog = FinMindMemoryLog
-
-__all__ = ["FinMindMemoryLog", "TradingMemoryLog"]

@@ -1,4 +1,4 @@
-﻿"""Structured tool result wrappers."""
+"""Structured tool result wrappers."""
 
 from __future__ import annotations
 
@@ -6,16 +6,20 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from finmindagent.runtime.events import utc_now
+from finmindagent.runtime.events import system_now
 
 
 class ToolResult(BaseModel):
     ok: bool
     tool_name: str
     data: str | dict | list | None = None
+    # Deterministic structured payload for report consumption. ``data`` stays
+    # the raw/compatible content; ``structured_data`` carries only what a
+    # known tool format can be parsed into, never LLM-guessed values.
+    structured_data: dict[str, Any] | None = None
     error: str | None = None
     source: str | None = None
-    timestamp: str = Field(default_factory=utc_now)
+    timestamp: str = Field(default_factory=system_now)
     truncated: bool = False
     artifact_path: str | None = None
     token_estimate: int | None = None

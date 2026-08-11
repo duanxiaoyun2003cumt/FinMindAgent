@@ -1,4 +1,4 @@
-﻿"""Model name validators for each provider."""
+"""Model name validators for each provider."""
 
 from .model_catalog import get_known_models
 

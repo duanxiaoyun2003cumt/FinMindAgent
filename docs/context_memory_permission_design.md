@@ -1,4 +1,4 @@
-﻿# Context, Memory, and Permission Design
+# Context, Memory, and Permission Design
 
 ## Context Engineering
 
@@ -53,7 +53,7 @@ memory directory. Active recall:
 6. Avoids injecting the same memory twice in one run.
 7. Marks stale memories with a warning.
 
-The old markdown decision log remains compatible through `FinMindMemoryLog`.
+The old markdown decision log remains compatible through `TradingMemoryLog`.
 
 ## Permission Management
 

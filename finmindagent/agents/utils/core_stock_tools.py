@@ -1,4 +1,4 @@
-﻿from langchain_core.tools import tool
+from langchain_core.tools import tool
 from typing import Annotated
 from finmindagent.dataflows.interface import route_to_vendor
 

@@ -1,4 +1,4 @@
-﻿"""Output budgets for runtime tool results."""
+"""Output budgets for runtime tool results."""
 
 from __future__ import annotations
 

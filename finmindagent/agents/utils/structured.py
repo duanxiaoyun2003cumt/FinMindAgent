@@ -1,4 +1,4 @@
-﻿"""Shared helpers for invoking an agent with structured output and a graceful fallback.
+"""Shared helpers for invoking an agent with structured output and a graceful fallback.
 
 The Portfolio Manager, Trader, and Research Manager all follow the same
 canonical pattern:

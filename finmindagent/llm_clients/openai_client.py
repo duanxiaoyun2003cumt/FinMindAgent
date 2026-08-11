@@ -1,4 +1,4 @@
-﻿import os
+import os
 from typing import Any, Optional
 
 from langchain_core.messages import AIMessage
@@ -52,7 +52,7 @@ def _input_to_messages(input_: Any) -> list:
 class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     """DeepSeek-specific overrides on top of the OpenAI-compatible client.
 
-    Two quirks that don't apply to other OpenAI-compatible providers:
+    Provider quirks:
 
     1. **Thinking-mode round-trip.** When DeepSeek's thinking models return
        a response with ``reasoning_content``, that field must be echoed
@@ -60,10 +60,20 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
        fails with HTTP 400. ``_create_chat_result`` captures the field on
        receive and ``_get_request_payload`` re-attaches it on send.
 
-    2. **deepseek-reasoner has no tool_choice.** Structured output via
-       function-calling is unavailable, so we raise NotImplementedError
-       and let the agent factories fall back to free-text generation
-       (see ``finmindagent/agents/utils/structured.py``).
+    2. **Structured output uses non-thinking mode (V4 contract).**
+       DeepSeek V4 (deepseek-v4-flash / deepseek-v4-pro) supports tool
+       calls and JSON output, but the provider rejects ``tool_choice``
+       while thinking mode is active (HTTP 400 "Thinking mode does not
+       support this tool_choice"). ``with_structured_output`` therefore
+       binds a structured-only client copy with
+       ``extra_body={"thinking": {"type": "disabled"}}``; ordinary
+       ``invoke`` keeps the default thinking behaviour and the original
+       client is never mutated.
+
+    3. **deepseek-reasoner (legacy) has no tool_choice.** Kept for
+       backwards compatibility: structured output via function-calling
+       raises NotImplementedError so agent factories fall back to
+       free-text generation. Not a current production default.
     """
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
@@ -97,11 +107,29 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     def with_structured_output(self, schema, *, method=None, **kwargs):
         if self.model_name == "deepseek-reasoner":
             raise NotImplementedError(
-                "deepseek-reasoner does not support tool_choice; structured "
-                "output is unavailable. Agent factories fall back to "
-                "free-text generation automatically."
+                "deepseek-reasoner (legacy) does not support tool_choice; "
+                "structured output is unavailable. Agent factories fall back "
+                "to free-text generation automatically."
             )
-        return super().with_structured_output(schema, method=method, **kwargs)
+
+        structured_llm = self
+        if self.model_name in _DEEPSEEK_V4_MODELS:
+            # V4 contract: structured requests must run with thinking
+            # disabled or the provider rejects tool_choice with HTTP 400.
+            # Build a structured-only copy; the original client keeps its
+            # default thinking behaviour for ordinary invokes.
+            extra = dict(getattr(self, "extra_body", None) or {})
+            extra["thinking"] = {"type": "disabled"}
+            structured_llm = self.model_copy(update={"extra_body": extra})
+
+        return NormalizedChatOpenAI.with_structured_output(
+            structured_llm, schema, method=method, **kwargs
+        )
+
+
+# Current DeepSeek V4 production models. Structured output on these models
+# runs with thinking disabled (see DeepSeekChatOpenAI.with_structured_output).
+_DEEPSEEK_V4_MODELS = frozenset({"deepseek-v4-flash", "deepseek-v4-pro"})
 
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (

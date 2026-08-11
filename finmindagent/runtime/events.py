@@ -1,8 +1,7 @@
-﻿"""Event and audit-friendly observation models."""
+"""Event and audit-friendly observation models."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -10,10 +9,16 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from finmindagent.runtime.actions import AgentAction
+from finmindagent.time_utils import system_timestamp
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def system_now() -> str:
+    """ISO-8601 system/runtime timestamp in Asia/Shanghai (+08:00).
+
+    The system clock for RuntimeEvent / permission audit / tool results —
+    always timezone-aware with an explicit offset.
+    """
+    return system_timestamp()
 
 
 class EventType(str, Enum):
@@ -39,5 +44,7 @@ class RuntimeEvent(BaseModel):
     observation: Any = None
     message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    timestamp: str = Field(default_factory=utc_now)
+    # Resolved at call time so the module-level system clock can be
+    # substituted in tests; behaviorally identical to system_now directly.
+    timestamp: str = Field(default_factory=lambda: system_now())
 
